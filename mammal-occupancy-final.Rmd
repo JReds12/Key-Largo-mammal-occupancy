@@ -1,0 +1,426 @@
+---
+title: "KL Mammal Occupancy Paper - Revisions 2"
+author: "Joseph Redinger"
+date: "9/8/2023"
+output:
+  word_document: default
+  html_document: default
+  pdf_document: default
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(warning = FALSE, message = FALSE)
+```
+
+### **Script Summary:** Fits python, year, and environmental factors to occupancy models to mammal camera trap data. Creates figures to help visualize changes in detection and extinction across 2016-2020.
+
+### **Paper:** Redinger J, Lord I, Dixon J, and Cove MV (2023) Mammal declines correspond with the increasing prevalence of Burmese pythons at their southern invasion front in the Florida Keys. Biological Invasions (In Review)
+
+# Occupancy Models
+
+### Load libraries
+```{r, warning = FALSE}
+library(unmarked)  # create occupancy models
+library(ggplot2)   # create individual plots
+library(ggpubr)    # combine plots for publication
+library(dplyr)     # clean data frame
+```
+
+### Load Data
+```{r, results="hide"}
+# load environmental variables - only dist.to.development used in models
+env.covs = read.csv("CM_occ_dat_covs.csv", header = T)
+
+# load python variables
+python.covs = read.csv("CLNWR_eMammal_python_variables.csv", header = T) 
+
+# load mammal occupancy data
+raccoon = read.csv("Northern_Raccoon_detection_history.csv", header = T) 
+opossum = read.csv("Virginia_Opossum_detection_history.csv", header = T)  
+squirrel = read.csv("Eastern_Gray_Squirrel_detection_history.csv", header = T)
+cotton.mouse = read.csv("Cotton_Mouse_detection_history.csv", header = T)
+woodrat = read.csv("Eastern_Woodrat_detection_history.csv", header = T)
+black.rat = read.csv("House_rat_detection_history.csv", header = T)
+
+```
+
+### Create function that prepares data for unmarked usage
+```{r, warning = FALSE}
+format.occ.dat = function(x) {
+  mam.2016 = x[which(x$year == 2016), 3:10]
+  mam.2018 = x[which(x$year == 2018), 3:10]
+  mam.2020 = x[which(x$year == 2020), 3:10]
+  mam.dat = merge(env.covs, python.covs, by = "Camera.ID")
+  mam.dat = merge(mam.dat, mam.2016, by = "Camera.ID")
+  mam.dat = merge(mam.dat, mam.2018, by = "Camera.ID")
+  mam.dat = merge(mam.dat, mam.2020, by = "Camera.ID")
+  return(mam.dat)
+}
+
+```
+
+
+### Function to run models
+```{r, warning = FALSE}
+run.occ.models = function(data) {
+  mam.dat = format.occ.dat(data)
+  survey.years = matrix(c('2016','2018','2020'), 428, 3, byrow = T)
+
+  mam.time.umf = unmarkedMultFrame(y = mam.dat[27:47],
+                                      siteCovs = mam.dat[1:26],
+                                      yearlySiteCovs = list(year = survey.years),
+                                      numPrimary = 3)
+
+  occ.0 = colext(~1, ~1, ~1, ~1, mam.time.umf)
+  occ.1 = colext(~1, ~1, ~1, ~year-1, mam.time.umf)
+  occ.2 = colext(~1, ~1, ~1, ~scale(dist.to.development), mam.time.umf)
+  occ.3 = colext(~1, ~1, ~year-1, ~1, mam.time.umf)
+  occ.4 = colext(~1, ~1, ~year-1, ~scale(dist.to.development), mam.time.umf)
+  occ.5 = colext(~1, ~1, ~year-1, ~year-1, mam.time.umf)
+  occ.6 = colext(~1, ~1, ~year-1, ~year-1 + scale(dist.to.development), mam.time.umf)
+  
+  fl = fitList(occ.0, occ.1, occ.2, occ.3, occ.4, occ.5, occ.6)
+  ms_occ = modSel(fl)
+  ms_occ
+
+  mam.summary = list(ms_occ, get(ms_occ@Full$model[1]), ms_occ@Full)
+  return(mam.summary)
+}
+
+```
+
+#### Raccoon Models
+```{r, warning = FALSE}
+ra.mods = run.occ.models(raccoon)
+ra.mods[1:2]
+
+
+```
+
+#### Opossum Models
+```{r, warning = FALSE}
+op.mods = run.occ.models(opossum)
+op.mods[1:2]
+
+```
+
+#### Squirrel Models
+```{r, warning = FALSE}
+sq.mods = run.occ.models(squirrel)
+sq.mods[1:2]
+
+```
+
+#### Cotton Mouse Models
+```{r, warning = FALSE}
+cm.mods = run.occ.models(cotton.mouse)
+cm.mods[1:2]
+
+```
+
+#### Woodrat Models
+```{r, warning = FALSE}
+wr.mods = run.occ.models(woodrat)
+wr.mods[1:2]
+
+```
+
+#### Blackrat models
+```{r, warning = FALSE}
+br.mods = run.occ.models(black.rat)
+br.mods[1:2]
+
+```
+ 
+### Combine occupancy model results into table
+```{r, warning = FALSE, echo=FALSE}
+ra.tab = as.data.frame(ra.mods[3]) %>%
+  filter(row_number() == 1 | cumltvWt < 0.9)
+op.tab = as.data.frame(op.mods[3]) %>%
+  filter(row_number() == 1 | cumltvWt < 0.9)
+sq.tab = as.data.frame(sq.mods[3]) %>%
+  filter(row_number() == 1 | cumltvWt < 0.9)
+cm.tab = as.data.frame(cm.mods[3]) %>%
+  filter(row_number() == 1 | cumltvWt < 0.9)
+wr.tab = as.data.frame(wr.mods[3]) %>%
+  filter(row_number() == 1 | cumltvWt < 0.9)
+br.tab = as.data.frame(br.mods[3]) %>%
+  filter(row_number() == 1 | cumltvWt < 0.9)
+
+table = rbind(ra.tab, op.tab, sq.tab, cm.tab, wr.tab, br.tab)
+
+mam.species = c(rep("raccoon", nrow(ra.tab)), rep("opossum", nrow(op.tab)), 
+             rep("squirrel", nrow(sq.tab)), rep("cotton.mouse", nrow(cm.tab)),  
+             rep("woodrat", nrow(wr.tab)), rep("black.rat", nrow(br.tab)))
+table$species = mam.species
+table
+ 
+
+# selecting columns
+col_order = c("species", "model", "formula", "nPars", "delta", "cumltvWt", "ext.Int.", 
+              "SEext.Int.", "ext.year2016.", "SEext.year2016.", "ext.year2018.",
+              "SEext.year2018.", "p.Int.", "SEp.Int.", "p.scale.dist.to.development..",
+              "SEp.scale.dist.to.development..", "p.year2016.", "SEp.year2016.",
+              "p.year2018.", "SEp.year2018.", "p.year2020.", "SEp.year2020." )
+table2= table[, col_order]
+table2
+
+# round columns to decimal places
+round = as.data.frame(apply(table2[5:ncol(table2)], 2, function(x) ifelse(is.na(x), NA, round(x, digits = 2))))
+table3 = cbind(table2[1:4], round)
+
+# combine columns
+table3$extIntercept = paste(table3$ext.Int., "±", table3$SEext.Int.)
+table3$ext2016 = paste(table3$ext.year2016., "±", table3$SEext.year2016.)
+table3$ext2018 = paste(table3$ext.year2018., "±", table3$SEext.year2018.)
+table3$pIntercept = paste(table3$p.Int., "±", table3$SEp.Int.)
+table3$dev = paste(table3$p.scale.dist.to.development.., "±", table3$SEp.scale.dist.to.development..)
+table3$p2016 = paste(table3$p.year2016., "±", table3$SEp.year2016.)
+table3$p2018 = paste(table3$p.year2018., "±", table3$SEp.year2018.)
+table3$p2020 = paste(table3$p.year2020., "±", table3$SEp.year2020.)
+table3$pIntercept = paste(table3$ext.Int., "±", table3$SEext.Int.)
+
+# selecting clean columns
+new_col_order = c("species", "formula", "nPars", "cumltvWt", "delta", "extIntercept", 
+                  "ext2016", "ext2018", "pIntercept", "dev", "p2016", "p2018","p2020" )
+table.clean= table3[, new_col_order]
+table.clean
+
+table.clean[table.clean == "NA ± NA"] = "-"
+# rename column name
+table.clean = table.clean %>%
+  rename(Species = species, Model = formula, K = nPars)
+
+#table.clean[table.clean$Model == "~1 ~ 1 ~ 1 ~ 1"] = paste(greeks("epsilon"), "(.), ", greeks("rho"), "(.)", sep = "")
+
+```
+
+#### Table output
+```{r}
+#write.csv(table.clean, file = "mam_timedep_occ_models_all.csv", row.names = F)
+
+shell.exec("mam_timedep_occ_models_all.csv")
+
+```
+
+
+# Time-dependent Occupancy Figures
+
+## Detection Probability Models
+
+### Create occupancy model for figures (ε(~year-1), ρ(~year-1))
+```{r, warning = FALSE, echo=FALSE}
+figure.occ = function(data) {
+  mam.dat = format.occ.dat(data)
+  survey.years = matrix(c('2016','2018','2020'), 428, 3, byrow = T)
+
+  mam.time.umf = unmarkedMultFrame(y = mam.dat[27:47],
+                                      siteCovs = mam.dat[1:26],
+                                      yearlySiteCovs = list(year = survey.years),
+                                      numPrimary = 3)
+
+  occ = colext(~1, ~1, ~year-1, ~year-1, mam.time.umf)
+  
+  return(occ)
+}
+
+```
+
+### Run occupancy models for figure
+```{r, results = "hide", message = FALSE, echo=FALSE}
+ra.fig.occ = figure.occ(raccoon)  
+op.fig.occ = figure.occ(opossum)    
+sq.fig.occ = figure.occ(squirrel)  
+cm.fig.occ = figure.occ(cotton.mouse)  
+wr.fig.occ = figure.occ(woodrat)  
+br.fig.occ = figure.occ(black.rat)
+
+```
+
+### Create function for detection probability plots
+```{r, message = FALSE, echo=FALSE}
+det.prob.plot = function(model) {
+  nd = data.frame(year = c('2016','2018','2020'))
+  E.det = predict(model, type = 'det', newdata = nd)
+  E.det$year = c(2016,2018,2020)
+  
+  plot = ggplot(E.det, aes(x = year, y = Predicted)) + 
+    geom_line(size = 0.5) +
+    geom_point(size = 2.0)+ 
+    geom_errorbar(aes(ymin = lower, ymax = upper), size = 0.5, width = 0.1) +
+    scale_x_continuous(breaks = seq(2016, 2020, 2)) +
+    ylim(0,0.6)+
+    ylab(NULL)+
+    xlab(NULL)+
+    theme_classic()+
+    theme(
+      aspect.ratio = 0.8,
+      axis.line = element_line(size = 0.75),
+      axis.text.x = element_blank(),
+      axis.text.y = element_blank())
+  
+  return(plot)
+}  
+
+```
+
+```{r}
+det.probs = function(model) {
+  nd = data.frame(year = c('2016','2018','2020'))
+  E.det = predict(model, type = 'det', newdata = nd)
+  E.det$year = c(2016,2018,2020)
+  
+  return(E.det)
+} 
+
+det.table = rbind(det.probs(ra.fig.occ), det.probs(op.fig.occ), det.probs(sq.fig.occ), det.probs(cm.fig.occ), det.probs(wr.fig.occ), det.probs(br.fig.occ))
+
+mam.species = c(rep("raccoon", 3), rep("opossum", 3), 
+             rep("squirrel", 3), rep("cotton.mouse", 3),  
+             rep("woodrat", 3), rep("black.rat", 3))
+det.table$species = mam.species
+det.table
+
+write.csv(det.table, file = "detection.prediction.table.csv", row.names = F)
+shell.exec("detection.prediction.table.csv")
+
+```
+### Create detection probability plots
+```{r, echo=FALSE}
+ra.det.plot = det.prob.plot(ra.fig.occ) +
+                theme(
+                  axis.text.y = element_text(size = 11, color = "black")
+                )
+
+op.det.plot = det.prob.plot(op.fig.occ) +
+                theme(
+                  axis.text.y = element_text(size = 11, color = "black")
+                )
+
+sq.det.plot = det.prob.plot(sq.fig.occ) +
+                theme(
+                  axis.text.y = element_text(size = 11, color = "black"),
+                  axis.text.x = element_text(size = 11, color = "black")
+                )
+cm.det.plot = det.prob.plot(cm.fig.occ)
+
+wr.det.plot = det.prob.plot(wr.fig.occ)
+
+br.det.plot = det.prob.plot(br.fig.occ) +
+                theme(
+                  axis.text.x = element_text(size = 11, color = "black")
+                )
+
+
+```
+
+
+### Combine graphs into one figure
+```{r, warning = FALSE, echo=FALSE}
+det.fig = ggarrange(ra.det.plot, cm.det.plot, op.det.plot, wr.det.plot, sq.det.plot, br.det.plot, 
+            labels = c("RA", "CM", "OP", "WR", "SQ", "BR"), hjust = 0.2, 
+            ncol = 2, nrow = 3, align = "hv", font.label = list(color = "black", face = "bold", size = 9))
+det.fig = annotate_figure(det.fig, left = text_grob("Detection Probability\n", 
+            size = 14, face = "bold", rot = 90), bottom = text_grob("\nYear", size = 14, face = "bold"))
+det.fig
+
+```
+
+
+## Extinction Probability Plots
+
+### Create function for extinction probability plots
+```{r, message=FALSE, echo=FALSE}
+ext.prob.plot = function(model) {
+  nd = data.frame(year = c('2016','2018'))
+  E.ext = predict(model, type = 'ext', newdata = nd)
+  E.ext$year = c(2016,2018)
+  
+  plot = ggplot(E.ext, aes(x = year, y = Predicted)) + 
+    geom_line(size = 0.5) +
+    geom_point(size = 2)+ 
+    geom_errorbar(aes(ymin = lower, ymax = upper), size = 0.5, width = 0.1) +
+    scale_x_continuous(breaks = seq(2016, 2018, by = 2)) +
+    scale_y_continuous(breaks = seq(0, 1, by = 0.5)) +
+    ylab(NULL)+
+    xlab(NULL)+
+    #ylim(0, 1)+
+    theme_classic()+
+    theme(
+      aspect.ratio = 0.8,
+      axis.line = element_line(size = 0.75),
+      axis.text.x = element_blank()
+      #axis.text.y = element_blank()
+    )
+  
+  return(plot)
+} 
+
+```
+
+### Create extinction probability plots
+```{r, message = FALSE, echo=FALSE}
+ra.ext.plot = ext.prob.plot(ra.fig.occ) +
+                scale_y_continuous(breaks = seq(0, 1, 0.5)) +
+                theme(
+                  axis.text.y = element_text(size = 11, color = "black")
+                )
+
+op.ext.plot = ext.prob.plot(op.fig.occ) +
+                theme(
+                  axis.text.y = element_text(size = 11, color = "black")
+                )
+
+sq.ext.plot = ext.prob.plot(sq.fig.occ) +
+                theme(
+                  axis.text.y = element_text(size = 11, color = "black"),
+                  axis.text.x = element_text(size = 11, color = "black")
+                )
+
+cm.ext.plot = ext.prob.plot(cm.fig.occ)
+
+
+wr.ext.plot = ext.prob.plot(wr.fig.occ)
+
+
+br.ext.plot = ext.prob.plot(br.fig.occ) +
+                theme(
+                  axis.text.x = element_text(size = 11, color = "black")
+                )
+
+```
+
+### Combine graphs into one figure
+```{r, warning = FALSE, echo=FALSE}
+ext.fig = ggarrange(ra.ext.plot, cm.ext.plot, op.ext.plot, wr.ext.plot, sq.ext.plot, br.ext.plot, 
+            labels = c("RA", "CM", "OP", "WR", "SQ", "BR"), hjust = 0.2, 
+            ncol = 2, nrow = 3, align = "hv", font.label = list(color = "black", size = 9))
+ext.fig = annotate_figure(ext.fig, left = text_grob("Extinction Probability\n", 
+            size = 14, face = "bold", rot = 90), bottom = text_grob("\nYear", size = 14, face = "bold"))
+ext.fig
+
+```
+
+```{r}
+ext.probs = function(model) {
+  nd = data.frame(year = c('2016','2018'))
+  E.ext = predict(model, type = 'ext', newdata = nd)
+  E.ext$year = c(2016,2018)
+  
+  return(E.ext)
+} 
+
+ext.table = rbind(ext.probs(ra.fig.occ), ext.probs(op.fig.occ), ext.probs(sq.fig.occ), ext.probs(cm.fig.occ), ext.probs(wr.fig.occ), ext.probs(br.fig.occ))
+
+mam.species = c(rep("raccoon", 2), rep("opossum", 2), 
+             rep("squirrel", 2), rep("cotton.mouse", 2),  
+             rep("woodrat", 2), rep("black.rat", 2))
+ext.table$species = mam.species
+ext.table
+
+
+write.csv(ext.table, file = "extinction.prediction.table.csv", row.names = F)
+shell.exec("extinction.prediction.table.csv")
+
+```
+
